@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="stylesheet" href="styles.css" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Breakdisk Analysis Tool - yefoi</title>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap" rel="stylesheet">
+
+        <script src="script.js"></script>
+    </head>
+
+    <div id="overlayBG">
+        <div id="overlayInfo">
+            <h1>Info for <b id="helpType">Button type</b></h1>
+
+            <p>Click off this box to cancel or press [ESCAPE]</p>
+
+            <h3 id="helpInfoText" style="margin-top: 15px;">Help info</h3>
+        </div>
+    </div>
+
+    <body>
+        <main class="container">
+            
+            <section>
+                <h1>Data Analysis and Visualization Parameters</h1>
+
+                <span style="width: 100%; justify-content: space-between; display: flex; align-items: center; width: 100%; gap:10px; margin-bottom: 10px;">
+                    <div id="filePathInput" class="codeFont">
+                        No file selected
+                    </div>
+                    <button onclick="selectNativeFile()">Select File</button>
+                </span>
+
+                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(0)">Inner diameter</p>
+                        <input type="text" placeholder="230.0" id="parameterInnerDiameter">
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(1)">Outer diameter</p>
+                        <input type="text" placeholder="320.0" id="parameterOuterDiameter">
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(2)">Angle bins</p>
+                        <select name="" id="parameterAngleBins">
+                            <option value="180">180</option>
+                            <option value="360">360</option>
+                            <option value="720" selected>720</option>
+                            <option value="1440">1440</option>
+                        </select>
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(3)">Radial bins</p>
+                        <select name="" id="parameterRadialBins">
+                            <option value="150">150</option>
+                            <option value="300">300</option>
+                            <option value="600">600</option>
+                            <option value="900" selected>900</option>
+                            <option value="1800">1800</option>
+                        </select>
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(4)">Mean clamping</p>
+                        <input type="text" placeholder="0" id="parameterMeanClamping">
+                    </div>
+                </span>
+
+                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(5)">Start scan range</p>
+                        <input type="text" placeholder="0" id="parameterStartScan">
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(6)">End scan range</p>
+                        <input type="text" placeholder="360" id="parameterEndScan">
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(11)">Ignore minimum</p>
+                        <input type="text" id="parameterIgnoreMinimum">
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(12)">Ignore maximum</p>
+                        <input type="text" id="parameterIgnoreMaximum">
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText" onclick="showHelp(13)">Gaussian Blur</p>
+                        <input type="text" placeholder="0" id="parameterGaussianBlur">
+                    </div>
+                    
+                </span>
+
+                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px; ">
+
+
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
+                        <input type="checkbox" id="parameterFlatnessAdjustment">
+                        <p onclick="showHelp(7)">Flatness Adjust</p>
+                    </span>
+
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
+                        <input type="checkbox" id="parameterReferenceZeroing">
+                        <p onclick="showHelp(8)">Reference Zeroing</p>
+                    </span>
+                
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
+                        <input type="checkbox" id="parameterNullFilling">
+                        <p onclick="showHelp(10)">Null filling</p>
+                    </span>
+
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
+                        <input type="checkbox" id="parameterRemapLines">
+                        <p onclick="showHelp(10)">Remap Lines</p>
+                    </span>
+                </span>
+
+                <span style="gap: 10px; align-items: center; display: flex;">
+                    <p style="width: 20%;">Progress bar</p>
+                    
+                    <div id="progressBar" class="codeFont">
+                        <div id="progressBarFill"></div>
+                        <span id="progressBarText" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">0%</span>
+                    </div>
+
+                    <button id="visualizeButton" onclick="runVisualization()">Visualize</button>
+                </span>
+
+                
+            
+                
+            </section>
+
+            <section>
+                <h1>Measurement tools</h1>
+
+                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
+                    <button>
+                        Two point height delta
+                    </button>
+                    <button>
+                        Line profile
+                    </button>
+                    <button>
+                        3D point cloud
+                    </button>
+                    <button>
+                        
+                    </button>
+                    <button>
+                        Stop process
+                    </button>
+                </span>
+
+                <pre id="otherOutputArea">Output</pre>
+            </section>
+
+            <section>
+                <h1>Visualization Output</h1>
+                
+            </section>
+
+            <section>
+                <h1>Appearance and Language</h1>
+
+                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px; ">
+
+                    <div style="width: 20%;">
+                        <p class="smallText">Text</p>
+                        <select name="" id="languageSelection">
+                            <option value="en" selected>English</option>
+                            <option value="cn">Chinese</option>
+                            <option value="de">German</option>
+                        </select>
+                    </div>
+
+                    <div style="width: 20%;">
+                        <p class="smallText">Text</p>
+                        <select name="" id="appearanceSelection">
+                            <option value="dark" selected>Dark</option>
+                            <option value="light">Light</option>
+                            <option value="system">System</option>
+                        </select>
+                    </div>
+
+
+                </span>
+
+            </section>
+            
+
+            
+
+        </main>
+    </body>
+</html>
