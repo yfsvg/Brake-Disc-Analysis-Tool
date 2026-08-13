@@ -53,8 +53,8 @@
                         <select name="" id="parameterAngleBins">
                             <option value="180">180</option>
                             <option value="360">360</option>
-                            <option value="720" selected>720</option>
-                            <option value="1440">1440</option>
+                            <option value="720">720</option>
+                            <option value="1440" selected>1440</option>
                             <option value="2880">2880</option>
                         </select>
                     </div>
@@ -119,9 +119,9 @@
                         <p onclick="showHelp(11)" class="smallText">Ref. Zeroing</p>
                     </span>
                 
-                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start; opacity: 0.5;">
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
                         <input type="checkbox" id="parameterNullFilling">
-                        <p onclick="showHelp(12)" class="smallText">Null filling</p>
+                        <p onclick="showHelp(12)" class="smallText">Outlier Flattening</p>
                     </span>
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
@@ -141,7 +141,7 @@
                         <span id="progressBarText" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">Processing: 0%</span>
                     </div>
 
-                    <button id="visualizeButton" onclick="runVisualization()">Visualize</button>
+                    <button id="visualizeButton" onclick="runVisualization(event)">Visualize</button>
                     <button onclick="cancelProcessing">
                         Stop process
                     </button>
@@ -191,29 +191,31 @@
                     <span>
                         <div>
                             <p class="smallText" onclick="showHelp(16)">Coordinate point 1 pressed: <p id="mtsLPASelectPoint1Show">None</p></p>
-                            <button>Select point 1</button>
+                            <button id="mtsLPASelectPoint1">Select point 1</button>
                         </div>
 
                         <div>
                             <p class="smallText" onclick="showHelp(16)">Coordinate point 2 pressed: <p id="mtsLPASelectPoint2Show">None</p></p>
-                            <button>Select point 2</button>
+                            <button id="mtsLPASelectPoint2">Select point 2</button>
                         </div>
 
                         <div>
                             <p class="smallText" onclick="showHelp(16)">Final: <p style="opacity: 0;"> .</p></p>
-                            <button disabled>Calculate</button>
+                            <button disabled id="mtsLPACalculate">Calculate</button>
                         </div>
 
                         <div>
                             <p class="smallText" onclick="showHelp(16)">Restart / unselect <p style="opacity: 0;"> .</p></p>
-                            <button>Restart / unselect</button>
+                            <button id="mtsLPARestartUnselect">Restart / unselect</button>
                         </div>
                     </span>
+
+                    <canvas id="lineProfileOutputArea"></canvas>
                 </div>
 
 
 
-                <pre id="otherOutputArea">Line Profile Output Area</pre>
+                
             </section>
 
             <section>

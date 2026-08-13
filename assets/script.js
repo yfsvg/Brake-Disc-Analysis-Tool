@@ -34,7 +34,13 @@ function updateProgressBar(percentage) {
     if (text) text.textContent = "Processing: " + clampedPercent + "%";
 }
 
-async function runVisualization() {
+async function runVisualization(event) {
+    if (event?.shiftKey) return reloadVisualization();
+    if (!selectedFilePath) {
+        alert("Please select a file first!");
+        return;
+    }
+
     if (!selectedFilePath) {
         alert("Please select a file first!");
         return;
@@ -137,7 +143,7 @@ const helpIDList = [
     ["Q High", "Controls the lowest percentage of outliers that won't be considered by the visualization's color scale during drawing. Best used if you see that your visualization's color range is dominanted by low outliers."],
     ["Flatness Adjustment", "Automatically adjusts the visualization for rotation of the breakdisk during scanning. There is a possibility that the rig or servo that the breakdisk is attached to is slightly tilted to one axis. This variation will overwhelm any useful patterns or data. Automatically turned on."],
     ["Reference Zeroing", "Changes the scale of the entire visualization to be plus or minus the average value."],
-    ["Null Filling", "UNFINISHED. Planned to use laplachian filling or gaussian blur to fill in null areas."],
+    ["Outlier Flattening", "Replaces all extreme outliers outside of the 2 standard deviations over the 25x25 bin local average with the local average. WARNING! This option is meant to clean up messy bits and obviously incorrect data outliers. However, since this is just a data analysis program it cannot differentiate between data points that are a result of data processing artifacts or actual, physical features. Use as a tool to better analyze broad structural changes or distortion to the breakdisk."],
     ["Radial Flattening", "Automatically adjusts the visualization for rotation of the laser during scanning. There is a possibility that the rig the line laser is attached to is slightly tilted to one axis. This variation will overwhelm any useful patterns or data. Automatically turned on."],
     ["0 at Right", "Automatically adjusts the 0 degree position to the right and goes counterclockwise. Purely an aestethetic (I know I spelled that wrong) change meant to replicate the unit circle and other standard trigonometric conventions of displaying polar data"],
     ["Two point height delta", "Finds the height difference between two points."],
@@ -220,8 +226,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!canvas || !viewport) return;
 
     // Original analysis frame constants
-    const CENTER_X = 257;
-    const CENTER_Y = 267;
+    const CENTER_X = 256;
+    const CENTER_Y = 264;
     // 275, 286
     const OUTER_R = 217;
     let INNER_R = OUTER_R * innerDiameterToOuterDiameterRatio;

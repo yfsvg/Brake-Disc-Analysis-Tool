@@ -223,44 +223,76 @@ def apply_flatness_adjust(
 
 
 
-def apply_null_filling(grid: np.ndarray) -> np.ndarray:
-    filled_grid = np.asarray(grid, dtype=np.float32).copy()
-    nan_mask = np.isnan(filled_grid)
+def apply_null_filling(
+    grid: np.ndarray, 
+    kernel_size: int = 25, 
+    threshold_std: float = 2.0, 
+    max_abs_diff: float | None = None
+) -> np.ndarray:
+    """Removes local noise and super high/low spike outliers by replacing them
+
+    with the local neighborhood average. Handles circular polar wrapping smoothly.
     
-    if not np.any(nan_mask):
-        return filled_grid
+    Parameters
+    ----------
+    grid : np.ndarray
+        Polar grid of shape (angle_bins, radial_bins)
+    kernel_size : int
+        Size of the local neighborhood window (must be odd, e.g., 3, 5, 7).
+    threshold_std : float
+        Outlier threshold based on standard deviation. Points deviating by more 
+        than `threshold_std * local_std` from the local mean are flagged.
+    max_abs_diff : float, optional
+        Hard cutoff difference (in um/units). Points differing from local mean 
+        by more than this value are flagged regardless of local std.
+    """
+    cleaned_grid = np.asarray(grid, dtype=np.float32).copy()
+    pad = kernel_size // 2
 
-    # Pass 1: coarse fill with large kernel to avoid chain reactions
-    # Uses only ORIGINAL valid data as sources, never filled values
-    original_valid = ~nan_mask
+    # 1. Pad array: Angular axis (axis 0) wraps circularly; Radial axis (axis 1) reflects/edges
+    padded = np.pad(cleaned_grid, ((pad, pad), (pad, pad)), mode="constant", constant_values=np.nan)
+    # Angular circular wrap (top and bottom edges)
+    padded[0:pad, pad:-pad] = cleaned_grid[-pad:, :]
+    padded[-pad:, pad:-pad] = cleaned_grid[0:pad, :]
+
+    angle_bins, radial_bins = cleaned_grid.shape
+
+    neighbors = []
+    for di in range(kernel_size):
+        for dj in range(kernel_size):
+            if di == pad and dj == pad:
+                continue  # Skip the center cell itself
+            neighbors.append(padded[di : di + angle_bins, dj : dj + radial_bins])
+
+    neighbors_stack = np.stack(neighbors, axis=0)  # Shape: (kernel_size^2 - 1, angle_bins, radial_bins)
+
+    # 3. Calculate local neighborhood mean and std (ignoring NaNs)
+    local_mean = np.nanmean(neighbors_stack, axis=0)
+    local_std = np.nanstd(neighbors_stack, axis=0)
+
+    # Prevent division by zero or extreme sensitivity on perfectly flat regions
+    local_std = np.maximum(local_std, 1e-5)
+
+    # 4. Identify outliers (super high points / extreme noise)
+    diff = np.abs(cleaned_grid - local_mean)
     
-    for kernel_size in [15, 9, 5, 3]:
-        pad = kernel_size // 2
-        still_nan = np.isnan(filled_grid)
-        if not np.any(still_nan):
-            break
-            
-        padded = np.pad(filled_grid, ((pad, pad), (pad, pad)), mode='constant', constant_values=np.nan)
-        padded[0:pad, pad:-pad] = filled_grid[-pad:, :]   # angular wrap top
-        padded[-pad:, pad:-pad] = filled_grid[0:pad, :]   # angular wrap bottom
+    outlier_mask = diff > (threshold_std * local_std)
 
-        neighbor_sum = np.zeros_like(filled_grid, dtype=np.float64)
-        neighbor_count = np.zeros_like(filled_grid, dtype=np.int32)
+    if max_abs_diff is not None:
+        outlier_mask |= diff > max_abs_diff
 
-        for di in range(kernel_size):
-            for dj in range(kernel_size):
-                if di == pad and dj == pad:
-                    continue
-                neighbor = padded[di:di + filled_grid.shape[0], dj:dj + filled_grid.shape[1]]
-                valid_neighbor = np.isfinite(neighbor)
-                neighbor_sum += np.where(valid_neighbor, neighbor, 0.0)
-                neighbor_count += valid_neighbor.astype(np.int32)
+    # Ensure we don't process pre-existing NaNs as outliers
+    outlier_mask &= np.isfinite(cleaned_grid)
 
-        fill_mask = still_nan & (neighbor_count > 0)
-        if np.any(fill_mask):
-            filled_grid[fill_mask] = (neighbor_sum[fill_mask] / neighbor_count[fill_mask]).astype(np.float32)
+    # 5. Replace outliers with local neighborhood average
+    cleaned_grid[outlier_mask] = local_mean[outlier_mask]
 
-    return filled_grid
+    logger.debug(
+        "Outlier removal complete: replaced %d spike points.", 
+        np.count_nonzero(outlier_mask)
+    )
+
+    return cleaned_grid
 
 
 
