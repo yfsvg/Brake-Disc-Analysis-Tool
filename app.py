@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-import csv
+# removed CSV functionality.
+# instead, just rely on NPZ. if time allows, just convert the csv to npz easy.
+
 import io
 import json
 import logging
@@ -15,43 +17,51 @@ import matplotlib
 import numpy as np
 from numba import njit
 
-# Set headless backend so matplotlib doesn't expect a GUI event loop
+
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
 import webview
 
 webview.settings["ALLOW_FILE_URLS"] = True
 
-# Configure logging format and level
+innerDim = 0;
+outerDim = 0;
+
+
+
 logging.basicConfig(
     level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(funcName)s: %(message)s",
-)
-logger = logging.getLogger("HeatmapApp")
 
-# Constants
+    format="%(asctime)s [%(levelname)s] %(funcName)s: %(message)s",
+
+)
+logger = logging.getLogger("Internsip Project")
+
+# Constants (Borrowed from zekai's original version)
 MICRONS_PER_RANGE_UNIT = 0.167569681
 MICRONS_PER_MM = 1000.0
 
 
-# --- Numba JIT Compiled Grid Accumulation ---
-
+# numba compiled grid accumulation
+# High level overview would just be that previous iteration did use c level libraries which is good, but entire binning process was
+# was wrapped with a python iteration. very quick replacement to use numba instead and actually fully get to feel the new speed using
+# it to compile to machine code
 @njit
 def _accumulate_grid_numba(
-    values: np.ndarray,
+    breakdisk_Around: np.ndarray,
     angle_index: np.ndarray,
     pixel_index: np.ndarray,
     sums: np.ndarray,
     counts: np.ndarray,
 ):
-    """
-    Compiled C-speed loop to replace Python's row-by-row iteration and np.add.at.
-    """
-    num_rows, num_cols = values.shape
-    for r in range(num_rows):
-        ai = angle_index[r]
+
+    num_rows, num_cols = breakdisk_Around.shape
+    for row in range(num_rows):
+        ai = angle_index[row]
+
         for c in range(num_cols):
-            val = values[r, c]
+            
+            val = breakdisk_Around[row, c]
             if np.isfinite(val):
                 pi = pixel_index[c]
                 sums[ai, pi] += val
@@ -67,7 +77,7 @@ class HeatmapData:
     source: Path
 
 
-# --- Data Processing Helper Functions ---
+
 
 
 def _safe_float(value: str | None) -> float | None:
@@ -170,19 +180,231 @@ def _read_npy(data: bytes) -> np.ndarray:
         return arr
 
 
+
+def apply_flatness_adjust(
+    grid: np.ndarray, theta_edges: np.ndarray, radius_edges: np.ndarray
+) -> np.ndarray:
+    """Identifies plane tilt in polar space using linear least squares
+
+    and levels the tilt (A*X + B*Y) while preserving the absolute height scale.
+    """
+    # Compute bin centers for polar coordinates
+    theta_centers = 0.5 * (theta_edges[:-1] + theta_edges[1:])
+    radius_centers = 0.5 * (radius_edges[:-1] + radius_edges[1:])
+
+    # Create 2D coordinate grid (angle_bins, radial_bins)
+    theta_grid, radius_grid = np.meshgrid(theta_centers, radius_centers, indexing="ij")
+
+    # Convert Polar (r, theta) -> Cartesian (X, Y)
+    X = radius_grid * np.cos(theta_grid)
+    Y = radius_grid * np.sin(theta_grid)
+
+    # Filter out NaNs for plane fitting
+    mask = np.isfinite(grid)
+    if not np.any(mask):
+        return grid
+
+    x_valid = X[mask]
+    y_valid = Y[mask]
+    z_valid = grid[mask]
+
+    # Design matrix for Z = A*X + B*Y + C
+    M = np.column_stack([x_valid, y_valid, np.ones_like(x_valid)])
+
+    # Solve linear least squares fit
+    (A, B, C), _, _, _ = np.linalg.lstsq(M, z_valid, rcond=None)
+
+    # Subtract ONLY the slope components (A*X + B*Y) to level tilt without shifting height level
+    tilt = A * X + B * Y
+    adjusted_grid = grid - tilt
+
+    logger.debug("Flatness tilt removed: A=%.4e, B=%.4e (Intercept C=%.4e retained)", A, B, C)
+    return adjusted_grid.astype(np.float32)
+
+
+
+def apply_null_filling(grid: np.ndarray) -> np.ndarray:
+    filled_grid = np.asarray(grid, dtype=np.float32).copy()
+    nan_mask = np.isnan(filled_grid)
+    
+    if not np.any(nan_mask):
+        return filled_grid
+
+    # Pass 1: coarse fill with large kernel to avoid chain reactions
+    # Uses only ORIGINAL valid data as sources, never filled values
+    original_valid = ~nan_mask
+    
+    for kernel_size in [15, 9, 5, 3]:
+        pad = kernel_size // 2
+        still_nan = np.isnan(filled_grid)
+        if not np.any(still_nan):
+            break
+            
+        padded = np.pad(filled_grid, ((pad, pad), (pad, pad)), mode='constant', constant_values=np.nan)
+        padded[0:pad, pad:-pad] = filled_grid[-pad:, :]   # angular wrap top
+        padded[-pad:, pad:-pad] = filled_grid[0:pad, :]   # angular wrap bottom
+
+        neighbor_sum = np.zeros_like(filled_grid, dtype=np.float64)
+        neighbor_count = np.zeros_like(filled_grid, dtype=np.int32)
+
+        for di in range(kernel_size):
+            for dj in range(kernel_size):
+                if di == pad and dj == pad:
+                    continue
+                neighbor = padded[di:di + filled_grid.shape[0], dj:dj + filled_grid.shape[1]]
+                valid_neighbor = np.isfinite(neighbor)
+                neighbor_sum += np.where(valid_neighbor, neighbor, 0.0)
+                neighbor_count += valid_neighbor.astype(np.int32)
+
+        fill_mask = still_nan & (neighbor_count > 0)
+        if np.any(fill_mask):
+            filled_grid[fill_mask] = (neighbor_sum[fill_mask] / neighbor_count[fill_mask]).astype(np.float32)
+
+    return filled_grid
+
+
+
+
+def apply_radial_flattening(
+    grid: np.ndarray, radius_edges: np.ndarray, method: str = "profile"
+) -> np.ndarray:
+    """Removes radial tapering/slope (e.g., inward or outward dish slopes).
+
+    Parameters
+    ----------
+    grid : np.ndarray
+        Polar grid of shape (angle_bins, radial_bins)
+    radius_edges : np.ndarray
+        Radius bin edge boundaries
+    method : str
+        'profile' -> Subtracts the global average radial profile (preserves local angular anomalies).
+        'per_ray'   -> Fits and removes a linear slope along each angle bin independently.
+    """
+    flattened_grid = np.asarray(grid, dtype=np.float32).copy()
+    angle_bins, radial_bins = flattened_grid.shape
+
+    if method == "profile":
+        # Compute mean height for each radial bin across all valid angle bins
+        radial_profile = np.nanmean(flattened_grid, axis=0)
+
+        # Center the radial profile around zero so absolute baseline is maintained
+        if np.any(np.isfinite(radial_profile)):
+            radial_profile -= np.nanmean(radial_profile)
+            # Subtract average radial shape from every angular ray
+            flattened_grid = flattened_grid - radial_profile
+
+    elif method == "per_ray":
+        radius_centers = 0.5 * (radius_edges[:-1] + radius_edges[1:])
+
+        for a in range(angle_bins):
+            ray = flattened_grid[a, :]
+            valid = np.isfinite(ray)
+
+            # Requires at least 2 valid points along the radial ray to fit a line
+            if np.count_nonzero(valid) >= 2:
+                r_valid = radius_centers[valid]
+                z_valid = ray[valid]
+
+                # Fit line: z = slope * r + intercept
+                slope, intercept = np.polyfit(r_valid, z_valid, 1)
+
+                # Remove trend centered on the ray's mean radius
+                r_mean = np.mean(r_valid)
+                trend = slope * (radius_centers - r_mean)
+                flattened_grid[a, :] -= trend
+
+    logger.debug("Applied radial flattening using method: %s", method)
+    return flattened_grid.astype(np.float32)
+
+
+
+def apply_polar_blur(grid: np.ndarray, blur_size: int) -> np.ndarray:
+    """Applies a box filter blur of size (blur_size x blur_size) to a polar grid.
+    
+    Angles (axis 0) wrap around smoothly; radii (axis 1) reflect at boundary edges.
+    """
+    if blur_size <= 1:
+        return grid.copy()
+
+    pad = blur_size // 2
+    angle_bins, radial_bins = grid.shape
+
+    # Pad angular axis (axis 0) with circular wrapping
+    padded = np.pad(grid, ((pad, pad), (0, 0)), mode="wrap")
+
+    # Pad radial axis (axis 1) using edge reflection
+    padded = np.pad(padded, ((0, 0), (pad, pad)), mode="edge")
+
+    blurred_grid = np.empty_like(grid, dtype=np.float32)
+
+    for a in range(angle_bins):
+        for r in range(radial_bins):
+            # FIX: Offset r by 'pad' so the radial window stays centered
+            window = padded[a : a + blur_size, r : r + blur_size]
+            
+            valid_mask = np.isfinite(window)
+            if np.any(valid_mask):
+                blurred_grid[a, r] = np.mean(window[valid_mask])
+            else:
+                blurred_grid[a, r] = np.nan
+
+    logger.debug("Applied polar mean blur with window size: %dx%d", blur_size, blur_size)
+    return blurred_grid
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def load_npz_heatmap(
     path: Path,
     *,
-    angle_bins: int,
-    radial_bins: int,
-    inner_diameter_mm: float,
-    outer_diameter_mm: float,
-    scan_angle_deg: float,
-    remap_lines: bool,
-    q_low: float,
-    q_high: float,
-    progress_callback=None,
+    angle_bins: int = 720,
+    radial_bins: int = 900,
+    inner_diameter_mm: float = 230.0,
+    outer_diameter_mm: float = 320.0,
+    scan_angle_deg: float = 360.0,
+    remap_lines: bool = True,
+    q_low: float = 1.0,
+    q_high: float = 99.0,
+    start_scan_range: float = 0.0, # the start of the scan
+    end_scan_range: float = 360.0, # the end of the scan
+    ignore_minimum: int | None = 5600, # any value lower than this gets turned into null. Don't directly write to NPZ file, but rather when copying it down just replace it with null
+    ignore_maximum: int | None = 6650, # same thing with the minimum thing
+    blur: int = 0,
+
+    reference_zeroing: bool = False,
+    flatness_adjust: bool = False,
+    null_filling: bool = False,
+    radial_flattening: bool = False,
+
+
+    cancel_check=None,
+    progress_callback=None
 ) -> HeatmapData:
+
+    global innerDim 
+    innerDim = inner_diameter_mm
+    global outerDim 
+    outerDim = outer_diameter_mm
+    
     logger.info("Starting NPZ heatmap loading process for: %s", path)
     members, recovered = _load_npz_members(path)
     names = set(members)
@@ -208,8 +430,8 @@ def load_npz_heatmap(
 
     first = _read_npy(members[value_names[0]])
     width = int(first.shape[1])
-    angle_bins = max(1, int(angle_bins))
-    radial_bins = max(1, int(radial_bins or width))
+    angle_bins = max(180, int(angle_bins))
+    radial_bins = max(150, int(radial_bins or width))
     logger.debug(
         "Configured bins -> angle_bins: %d, radial_bins: %d, frame width: %d",
         angle_bins,
@@ -233,10 +455,18 @@ def load_npz_heatmap(
     label = "height (um)"
     logger.debug("Detected value_kind: %s", value_kind)
 
+    # Order-agnostic scan range bounds
+    low_scan_deg = min(float(start_scan_range), float(end_scan_range))
+    high_scan_deg = max(float(start_scan_range), float(end_scan_range))
+    range_span_deg = high_scan_deg - low_scan_deg
+
     total_chunks = len(value_names)
     for idx, (value_name, angle_name) in enumerate(
         zip(value_names, angle_names, strict=False)
     ):
+        if cancel_check:
+                cancel_check()
+        
         logger.debug(
             "Processing chunk block %d/%d: %s | %s",
             idx + 1,
@@ -245,9 +475,7 @@ def load_npz_heatmap(
             angle_name,
         )
         values = _read_npy(members[value_name]).astype(np.float32, copy=False)
-        stored_angles = (
-            _read_npy(members[angle_name]).astype(np.float64, copy=False) % 360.0
-        )
+        stored_angles = _read_npy(members[angle_name]).astype(np.float64, copy=False)
 
         if values.ndim != 2 or stored_angles.size != values.shape[0]:
             raise ValueError(
@@ -259,19 +487,27 @@ def load_npz_heatmap(
         else:
             values = values * MICRONS_PER_RANGE_UNIT
 
+
+        if ignore_minimum is not None: values[values < ignore_minimum] = np.nan
+        if ignore_maximum is not None: values[values > ignore_maximum] = np.nan
+
+        num_chunk_lines = values.shape[0]
+
         if remap_lines:
-            rows = np.arange(
-                line_offset, line_offset + values.shape[0], dtype=np.float64
+            rows = np.arange( 
+                line_offset, line_offset + num_chunk_lines, dtype=np.float64
             )
-            angles = (rows / max(total_lines, 1) * float(scan_angle_deg)) % 360.0
+            angles = rows / max(total_lines, 1) * float(scan_angle_deg)
         else:
             angles = stored_angles
 
-        line_offset += values.shape[0]
-        angle_index = np.floor(angles / 360.0 * angle_bins).astype(np.int32)
+        line_offset += num_chunk_lines
+
+        angles_grid = angles % 360.0
+        angle_index = np.floor(angles_grid / 360.0 * angle_bins).astype(np.int32)
         angle_index = np.clip(angle_index, 0, angle_bins - 1)
 
-        # 🚀 ACCELERATED WITH NUMBA
+        # ACCELERATED WITH NUMBA
         _accumulate_grid_numba(values, angle_index, pixel_index, sums, counts)
 
         # Update Progress Bar dynamically (0%-80% range for chunk parsing)
@@ -290,135 +526,49 @@ def load_npz_heatmap(
 
     inner_r = float(inner_diameter_mm) / 2.0
     outer_r = float(outer_diameter_mm) / 2.0
-    if not (outer_r > inner_r > 0):
-        raise ValueError("内外径必须有效，例如内径230、外径330。")
+
 
     theta_edges = np.linspace(0.0, 2.0 * np.pi, angle_bins + 1)
     radius_edges = np.linspace(inner_r, outer_r, radial_bins + 1)
-    if recovered:
-        label += " (recovered NPZ)"
+
+    if flatness_adjust:
+        grid = apply_flatness_adjust(grid, theta_edges, radius_edges)
+
+    if null_filling:
+        grid = apply_null_filling(grid)
+
+    if radial_flattening:
+        grid = apply_radial_flattening(grid, radius_edges, method="profile")
+
+    if blur and int(blur) > 1:
+        grid = apply_polar_blur(grid, int(blur))
+
+    if reference_zeroing:
+        finite = grid[np.isfinite(grid)]
+        grid_mean = np.nanmean(finite)
+        grid = grid - grid_mean
+        label = "height - mean (um)"
 
     finite = grid[np.isfinite(grid)]
     if finite.size == 0:
         raise ValueError("热力图没有有效值。")
 
-    q_low_val, q_high_val = np.nanpercentile(finite, [q_low, q_high])
-    logger.info(
-        "Percentile bounds calculated: q_low(%.1f%%) = %.3f, q_high(%.1f%%) = %.3f",
-        q_low,
-        q_low_val,
-        q_high,
-        q_high_val,
-    )
-
-    return HeatmapData(
-        grid=grid,
-        theta_edges=theta_edges,
-        radius_edges=radius_edges,
-        label=label,
-        source=path,
-    )
 
 
-def load_csv_heatmap(
-    path: Path,
-    *,
-    angle_bins: int,
-    radial_bins: int,
-    inner_diameter_mm: float,
-    outer_diameter_mm: float,
-    q_low: float,
-    q_high: float,
-    progress_callback=None,
-) -> HeatmapData:
-    logger.info("Starting CSV heatmap loading process for: %s", path)
+
     
-    file_size = path.stat().st_size
+    # Create full angular grid centers (in degrees) to match grid rows
+    angles_deg = np.linspace(0.0, 360.0, angle_bins, endpoint=False)
 
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        fields = set(reader.fieldnames or [])
-        logger.debug("CSV Field names discovered: %s", fields)
+    # Mask out indices that fall outside [start_scan_range, end_scan_range]
+    if range_span_deg < 360.0:
+        valid_angular_mask = ((angles_deg - low_scan_deg) % 360.0) <= range_span_deg
+        grid[~valid_angular_mask, :] = np.nan
 
-        height_field = "height_mm" if "height_mm" in fields else "range_units"
-        if not {"angle_deg", "pixel", height_field}.issubset(fields):
-            raise ValueError(
-                "CSV 缺少 angle_deg/pixel/height_mm 或 range_units 字段。"
-            )
-
-        angles: list[float] = []
-        pixels: list[int] = []
-        values: list[float] = []
-        max_pixel = 0
-        row_count = 0
-
-        for row in reader:
-            row_count += 1
-            angle = _safe_float(row.get("angle_deg"))
-            pixel = _safe_float(row.get("pixel"))
-            value = _safe_float(row.get(height_field))
-
-            if row_count % 10000 == 0 and progress_callback and file_size > 0:
-                read_bytes = f.tell()
-                percent = min(80, int((read_bytes / file_size) * 80))
-                progress_callback(percent)
-
-            if angle is None or pixel is None or value is None:
-                continue
-            pix = int(round(pixel))
-            if pix < 0:
-                continue
-            angles.append(angle % 360.0)
-            pixels.append(pix)
-            if height_field == "height_mm":
-                values.append(value * MICRONS_PER_MM)
-            else:
-                values.append(value * MICRONS_PER_RANGE_UNIT)
-            max_pixel = max(max_pixel, pix)
-
-    logger.debug(
-        "Parsed %d CSV rows (%d valid entries). Max pixel index: %d",
-        row_count,
-        len(values),
-        max_pixel,
-    )
-    if not values:
-        raise ValueError("CSV 没有可用数据。")
-
-    if progress_callback:
-        progress_callback(80)
-
-    angle_bins = max(1, int(angle_bins))
-    radial_bins = max(1, int(radial_bins or (max_pixel + 1)))
-
-    angle_index = np.floor(np.asarray(angles) / 360.0 * angle_bins).astype(np.int32)
-    angle_index = np.clip(angle_index, 0, angle_bins - 1)
-    pixel_index = np.floor(
-        np.asarray(pixels) / max(max_pixel + 1, 1) * radial_bins
-    ).astype(np.int32)
-    pixel_index = np.clip(pixel_index, 0, radial_bins - 1)
-    pixel_index = (radial_bins - 1) - pixel_index
-
-    sums = np.zeros((angle_bins, radial_bins), dtype=np.float64)
-    counts = np.zeros((angle_bins, radial_bins), dtype=np.uint32)
-    np.add.at(sums, (angle_index, pixel_index), np.asarray(values, dtype=np.float64))
-    np.add.at(counts, (angle_index, pixel_index), 1)
-
-    grid = np.full((angle_bins, radial_bins), np.nan, dtype=np.float32)
-    valid = counts > 0
-    grid[valid] = (sums[valid] / counts[valid]).astype(np.float32)
-
+    # Ensure there is valid data remaining inside the requested range
     finite = grid[np.isfinite(grid)]
     if finite.size == 0:
-        raise ValueError("热力图没有有效值。")
-
-    q_low_val, q_high_val = np.nanpercentile(finite, [q_low, q_high])
-
-    inner_r = float(inner_diameter_mm) / 2.0
-    outer_r = float(outer_diameter_mm) / 2.0
-    theta_edges = np.linspace(0.0, 2.0 * np.pi, angle_bins + 1)
-    radius_edges = np.linspace(inner_r, outer_r, radial_bins + 1)
-    label = "height (um)"
+        raise ValueError("Heatmap has no valid values within the selected scan range.")
 
     return HeatmapData(
         grid=grid,
@@ -437,22 +587,29 @@ class Api:
 
     def __init__(self):
         self.window = None
+        self._is_cancelled = False
+
+    def cancelProcessing(self):
+        """Called by JavaScript to signal cancellation."""
+        logger.info("Cancellation requested via API.")
+        self._is_cancelled = True
+        return {"status": "cancelled"}
+
+    def _check_cancellation(self):
+        """Helper to raise an exception if cancel was requested."""
+        if self._is_cancelled:
+            logger.info("Processing safely halted due to cancellation signal.")
+            raise InterruptedError("Processing was cancelled by the user.")
 
     def _update_js_progress(self, percent: int):
         """Dispatches progress percentage updates to JavaScript"""
         if self.window:
             self.window.evaluate_js(f"updateProgressBar({percent})")
 
-    def say_hello(self, name):
-        logger.debug("say_hello called with argument: %s", name)
-        return f"Hello {name} from the Python backend!"
-
     def openFile(self, **kwargs):
         logger.info("Triggered openFile dialog from JS interface with options: %s", kwargs)
         file_types = (
-            "Profile Files (*.npz;*.csv)",
             "NPZ Files (*.npz)",
-            "CSV Files (*.csv)",
             "All files (*.*)",
         )
 
@@ -470,19 +627,41 @@ class Api:
         logger.info("Selected file: %s", file_path)
         return {"status": "success", "file_path": file_path}
 
+    
     def processAndVisualize(self, kwargs):
+        # RESET CANCELLATION FLAG BEFORE STARTING
+        self._is_cancelled = False 
+
         file_path_str = kwargs.get("file_path")
         if not file_path_str:
             return {"status": "error", "message": "No file path provided."}
 
         file_path = Path(file_path_str)
+
+        zero_at_right = bool(kwargs.get("zero_at_right", False))
+        
+        # Pass self._check_cancellation into params
         params = {
             "angle_bins": kwargs.get("angle_bins", 720),
             "radial_bins": kwargs.get("radial_bins", 900),
             "inner_diameter_mm": kwargs.get("inner_diameter_mm", 230.0),
-            "outer_diameter_mm": kwargs.get("outer_diameter_mm", 330.0),
-            "q_low": kwargs.get("q_low", 1.0),
-            "q_high": kwargs.get("q_high", 99.0),
+            "outer_diameter_mm": kwargs.get("outer_diameter_mm", 320.0),
+            "q_low": float(kwargs.get("q_low", 1.0) if kwargs.get("q_low") is not None else 1.0),
+            "q_high": float(kwargs.get("q_high", 99.0) if kwargs.get("q_high") is not None else 99.0),
+            "start_scan_range": kwargs.get("start_scan_range", 0.0),
+            "end_scan_range": kwargs.get("end_scan_range", 360.0),
+
+            "ignore_minimum": kwargs.get("ignore_minimum"),
+            "ignore_maximum": kwargs.get("ignore_maximum"),
+
+            "blur": kwargs.get("blur"),
+
+            "reference_zeroing": bool(kwargs.get("reference_zeroing", False)),
+            "flatness_adjust": bool(kwargs.get("flatness_adjust", False)),
+            "null_filling": bool(kwargs.get("null_filling", False)),
+            "radial_flattening": bool(kwargs.get("radial_flattening", False)),
+
+            "cancel_check": self._check_cancellation,  # <-- Pass check function here
             "progress_callback": self._update_js_progress,
         }
 
@@ -497,44 +676,64 @@ class Api:
                     remap_lines=kwargs.get("remap_lines", True),
                     **params,
                 )
-            elif file_path.suffix.lower() == ".csv":
-                logger.info("Routing process to CSV loader.")
-                data = load_csv_heatmap(file_path, **params)
             else:
-                logger.error(
-                    "Unsupported file extension provided: %s", file_path.suffix
-                )
+                logger.error("Unsupported file extension provided: %s", file_path.suffix)
                 return {
                     "status": "error",
                     "message": f"Unsupported format: {file_path.suffix}",
                 }
+        except InterruptedError:
+            # Catch the explicit cancellation exception
+            return {"status": "cancelled", "message": "Processing was cancelled."}
         except Exception as e:
             logger.exception("An exception occurred while processing dataset:")
             return {"status": "error", "message": f"Processing Error: {str(e)}"}
 
         # Step 2: Render & save visualization to PNG file
         self._update_js_progress(85)
-        output_png_path = file_path.with_suffix(".png")
+        
+        output_dir = Path("assets")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_png_path = output_dir / "output.png"
+        output_json_path = output_dir / "outputInfo.json"
+        
         logger.info("Rendering heatmap visualization to PNG: %s", output_png_path)
 
-        fig = Figure(figsize=(9, 8), dpi=100)
+        fig = Figure(figsize=(9, 8), dpi=500)
         ax = fig.add_subplot(111, projection="polar")
 
         theta, radius = np.meshgrid(data.theta_edges, data.radius_edges)
+        
+        # Calculate percentiles directly using the payload values on valid points within the range
         finite = data.grid[np.isfinite(data.grid)]
-        vmin, vmax = np.nanpercentile(finite, [params["q_low"], params["q_high"]])
+        q_low_val = float(params["q_low"])
+        q_high_val = float(params["q_high"])
+        vmin, vmax = np.nanpercentile(finite, [q_low_val, q_high_val])
+
+        logger.debug("Applying color scale range (vmin: %.3f, vmax: %.3f) for q_low: %.1f%%, q_high: %.1f%%", 
+                     vmin, vmax, q_low_val, q_high_val)
 
         mesh = ax.pcolormesh(
             theta,
             radius,
             data.grid.T,
             shading="auto",
+            antialiased=False,
             cmap="turbo",
             vmin=vmin,
             vmax=vmax,
         )
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
+
+
+        # if user picks zero to right, shift everything
+        if zero_at_right:
+            ax.set_theta_zero_location("E") # "E" and "N" are east and north, set those.
+            ax.set_theta_direction(1)
+        else:
+            ax.set_theta_zero_location("N")
+            ax.set_theta_direction(-1) # Clockwise, reg config
+
         ax.set_ylim(0.0, float(data.radius_edges[-1]))
         ax.set_ylabel("Radius (mm)")
         ax.set_title(data.source.name)
@@ -544,22 +743,47 @@ class Api:
         fig.savefig(output_png_path, bbox_inches="tight")
         logger.info("PNG export complete: %s", output_png_path)
 
+        # --- STEP 2.5: EXPORT outputInfo.json ---
+        # Convert NaNs to None so json.dump creates standard `null` values
+        clean_grid = np.where(np.isnan(data.grid), None, data.grid)
+        polar_coordinate_list = clean_grid.tolist()
+
+        json_data = {
+            "source": data.source.name,
+            "angle_bins": data.grid.shape[0],
+            "radial_bins": data.grid.shape[1],
+            "inner_diameter_mm": kwargs.get("inner_diameter_mm", 230.0),
+            "outer_diameter_mm": kwargs.get("outer_diameter_mm", 320.0),
+            "data": polar_coordinate_list,
+        }
+
+
+        with open(output_json_path, "w", encoding="utf-8") as f:
+            json.dump(json_data, f)
+        
+        logger.info("JSON export complete: %s", output_json_path)
+
         self._update_js_progress(100)
 
         # Step 3: Compute basic dataset statistics
         z_min = float(np.nanmin(finite))
         z_max = float(np.nanmax(finite))
         z_mean = float(np.nanmean(finite))
+        z_sdv = float(np.nanstd(finite))
+
 
         return {
             "status": "success",
             "file_path": str(file_path),
-            "saved_image": str(output_png_path),
+            "saved_image": "output.png",
+            "saved_json": "outputInfo.json",
             "stats": {
                 "min": z_min,
                 "max": z_max,
                 "range": z_max - z_min,
                 "mean": z_mean,
+                "sdv": z_sdv,
+                "inmUsed": innerDim / outerDim
             },
         }
 

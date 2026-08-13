@@ -11,6 +11,7 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap" rel="stylesheet">
 
         <script src="script.js"></script>
+        <script src="scriptLineProfiler.js"></script>
     </head>
 
     <div id="overlayBG">
@@ -54,6 +55,7 @@
                             <option value="360">360</option>
                             <option value="720" selected>720</option>
                             <option value="1440">1440</option>
+                            <option value="2880">2880</option>
                         </select>
                     </div>
 
@@ -65,13 +67,15 @@
                             <option value="600">600</option>
                             <option value="900" selected>900</option>
                             <option value="1800">1800</option>
+                            <option value="3600">3600</option>
                         </select>
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(4)">Mean clamping</p>
-                        <input type="text" placeholder="0" id="parameterMeanClamping">
+                        <p class="smallText" onclick="showHelp(4)">Q Low</p>
+                        <input type="text" placeholder="0.01" id="parameterQLimitLow">
                     </div>
+
                 </span>
 
                 <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
@@ -86,18 +90,18 @@
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(11)">Ignore minimum</p>
-                        <input type="text" id="parameterIgnoreMinimum">
+                        <p class="smallText" onclick="showHelp(7)">Ignore minimum</p>
+                        <input type="text" id="parameterIgnoreMinimum" placeholder="5600">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(12)">Ignore maximum</p>
-                        <input type="text" id="parameterIgnoreMaximum">
+                        <p class="smallText" onclick="showHelp(8)">Ignore maximum</p>
+                        <input type="text" id="parameterIgnoreMaximum" placeholder="6650">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(13)">Gaussian Blur</p>
-                        <input type="text" placeholder="0" id="parameterGaussianBlur">
+                        <p class="smallText" onclick="showHelp(9)">Q High</p>
+                        <input type="text" placeholder="0.99" id="parameterQLimithigh">
                     </div>
                     
                 </span>
@@ -106,35 +110,41 @@
 
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
-                        <input type="checkbox" id="parameterFlatnessAdjustment">
-                        <p onclick="showHelp(7)">Flatness Adjust</p>
+                        <input type="checkbox" id="parameterFlatnessAdjustment" checked>
+                        <p onclick="showHelp(10)" class="smallText">Flatness Adjust</p>
                     </span>
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
                         <input type="checkbox" id="parameterReferenceZeroing">
-                        <p onclick="showHelp(8)">Reference Zeroing</p>
+                        <p onclick="showHelp(11)" class="smallText">Ref. Zeroing</p>
                     </span>
                 
-                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start; opacity: 0.5;">
                         <input type="checkbox" id="parameterNullFilling">
-                        <p onclick="showHelp(10)">Null filling</p>
+                        <p onclick="showHelp(12)" class="smallText">Null filling</p>
                     </span>
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
-                        <input type="checkbox" id="parameterRemapLines">
-                        <p onclick="showHelp(10)">Remap Lines</p>
+                        <input type="checkbox" id="parameterRadialFlattening">
+                        <p onclick="showHelp(13)" class="smallText">Radial Flattening</p>
+                    </span>
+
+                    <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
+                        <input type="checkbox" id="parameterZeroAtRight">
+                        <p onclick="showHelp(14)" class="smallText">0 at right</p>
                     </span>
                 </span>
 
                 <span style="gap: 10px; align-items: center; display: flex;">
-                    <p style="width: 20%;">Progress bar</p>
-                    
                     <div id="progressBar" class="codeFont">
                         <div id="progressBarFill"></div>
-                        <span id="progressBarText" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">0%</span>
+                        <span id="progressBarText" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">Processing: 0%</span>
                     </div>
 
                     <button id="visualizeButton" onclick="runVisualization()">Visualize</button>
+                    <button onclick="cancelProcessing">
+                        Stop process
+                    </button>
                 </span>
 
                 
@@ -143,38 +153,123 @@
             </section>
 
             <section>
-                <h1>Measurement tools</h1>
+                <h1>Measurement/analysis tools</h1>
 
-                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
-                    <button>
-                        Two point height delta
-                    </button>
-                    <button>
-                        Line profile
-                    </button>
-                    <button>
-                        3D point cloud
-                    </button>
-                    <button>
-                        
-                    </button>
-                    <button>
-                        Stop process
-                    </button>
-                </span>
+                <div class="measurementToolSegment">
 
-                <pre id="otherOutputArea">Output</pre>
+                </div>
+
+                <div class="measurementToolSegment">
+                    <h3>Two point height delta</h3>
+                    <span>
+                        <div>
+                            <p class="smallText" onclick="showHelp(15)">Current point 1: <p id="mtsSelectPoint1Show">None</p></p>
+                            <button onclick="setPoint(1)">Select point 1</button>
+                        </div>
+
+                        <div>
+                            <p class="smallText" onclick="showHelp(15)">Current point 2: <p id="mtsSelectPoint2Show">None</p></p>
+                            <button onclick="setPoint(2)">Select point 2</button>
+                        </div>
+
+                        <div>
+                            <p class="smallText" onclick="showHelp(15)">Final height delta: <p id="mtsDeltaShow">None</p></p>
+                            <button onclick="calculateHeightDelta()" disabled>Calculate</button>
+                        </div>
+
+                        <div>
+                            <p class="smallText" onclick="showHelp(15)">Restart / unselect <p style="opacity: 0;">. </p></p>
+                            <button onclick="resetHeightDelta()">Restart / unselect</button>
+                        </div>
+                    </span>
+                </div>
+
+
+
+                <div class="measurementToolSegment">
+                    <h3>Line profile analysis</h3>
+                    <span>
+                        <div>
+                            <p class="smallText" onclick="showHelp(16)">Coordinate point 1 pressed: <p id="mtsLPASelectPoint1Show">None</p></p>
+                            <button>Select point 1</button>
+                        </div>
+
+                        <div>
+                            <p class="smallText" onclick="showHelp(16)">Coordinate point 2 pressed: <p id="mtsLPASelectPoint2Show">None</p></p>
+                            <button>Select point 2</button>
+                        </div>
+
+                        <div>
+                            <p class="smallText" onclick="showHelp(16)">Final: <p style="opacity: 0;"> .</p></p>
+                            <button disabled>Calculate</button>
+                        </div>
+
+                        <div>
+                            <p class="smallText" onclick="showHelp(16)">Restart / unselect <p style="opacity: 0;"> .</p></p>
+                            <button>Restart / unselect</button>
+                        </div>
+                    </span>
+                </div>
+
+
+
+                <pre id="otherOutputArea">Line Profile Output Area</pre>
             </section>
 
             <section>
                 <h1>Visualization Output</h1>
                 
+                <span style="width: 100%; gap: 10px;">
+                    <section id="imageViewport" style="height: 600px; width: 600px; min-width: 600px; position: relative; overflow: hidden; background-color: #161A1E; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1);">
+                        
+                        <div id="transformLayer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; background-repeat: no-repeat; background-size: contain; background-position: 0% 0%;">
+                            <canvas id="finalImageOverlay" style="width: 100%; height: 100%; display: block;"></canvas>
+                        </div>
+                    </section>
+
+                    <section style="width: 30%; min-width: 250px; height: 600px" id="dataAnalysisDashboard">
+                        <h1>Data Analysis Dashboard</h1>
+                        <div style="margin-bottom: 10px;">
+                            <h3 style="margin-bottom: 10px;">Static information</h3>
+                            <p id="siInfoAverage" style="margin-bottom: 10px;">Average: </p>
+                            <p id="siInfoStdv" style="margin-bottom: 10px;">Standard Deviation: </p>
+                            <p id="siInfoMax" style="margin-bottom: 10px;">Max:</p>
+                            <p id="siInfoMin" style="margin-bottom: 10px;">Min:</p>
+                        </div>
+
+                        <div style="margin-bottom: 10px;">
+                            <h3 style="margin-bottom: 10px;">Mouse hover information</h3>
+                            <p id="mhInfoCartesianPos" style="margin-bottom: 10px;">Cartesian coordinates: </p>
+                            <p id="mhInfoPolarPos" style="margin-bottom: 10px;">Polar coordinates: </p>
+                            <p id="mhInfoPolarBinPos" style="margin-bottom: 10px;">Polar bin: </p>
+                            <p id="mhInfoHeightVal" style="margin-bottom: 10px;">Height value: </p>
+                        </div>
+
+                        <div style="margin-bottom: 10px;">
+                            <h3 style="margin-bottom: 10px;">Zoom tools</h3>
+                            <span style="gap: 5px;">
+                                <button id="btnZoomIn" class="zoomControlButton">+</button>
+                                <button id="btnZoomOut" class="zoomControlButton">-</button>
+                                <button id="btnZoomReset" class="zoomControlButton" style="font-size: 1em;">RST</button>
+                            </span>
+                        </div>
+
+                        <div style="margin-bottom: 10px;">
+                            <h3 style="margin-bottom: 10px;">Save Scan Analysis</h3>
+                            <a href="/output.png"><button style="margin-bottom: 5px;">Save PNG</button></a>
+                            <button>Generate Report</button>
+                        </div>
+
+
+
+                    </section>
+                </span>
             </section>
 
             <section>
                 <h1>Appearance and Language</h1>
 
-                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px; ">
+                <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px; justify-content: start;">
 
                     <div style="width: 20%;">
                         <p class="smallText">Text</p>
@@ -205,3 +300,5 @@
         </main>
     </body>
 </html>
+
+
