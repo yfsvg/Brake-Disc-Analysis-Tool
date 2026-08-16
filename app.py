@@ -17,13 +17,21 @@ import matplotlib
 import numpy as np
 from numba import njit
 
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
 
 matplotlib.use("Agg")
 from matplotlib.figure import Figure
 import webview
 
+
 webview.settings["ALLOW_FILE_URLS"] = True
 
+# Global variables for making passing to js easer
 innerDim = 0;
 outerDim = 0;
 
@@ -31,15 +39,15 @@ outerDim = 0;
 
 logging.basicConfig(
     level=logging.DEBUG,
-
     format="%(asctime)s [%(levelname)s] %(funcName)s: %(message)s",
 
 )
-logger = logging.getLogger("Internsip Project")
+logger = logging.getLogger("Breakdisk Analysis Tool")
 
 # Constants (Borrowed from zekai's original version)
 MICRONS_PER_RANGE_UNIT = 0.167569681
 MICRONS_PER_MM = 1000.0
+
 
 
 # numba compiled grid accumulation
@@ -79,22 +87,8 @@ class HeatmapData:
 
 
 
-
-def _safe_float(value: str | None) -> float | None:
-    if value is None:
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    try:
-        out = float(text)
-    except ValueError:
-        return None
-    return out if math.isfinite(out) else None
-
-
-def _read_local_zip_members(path: Path) -> dict[str, bytes]:
-    logger.debug("Attempting manual zip member extraction for path: %s", path)
+def _read_npz(path: Path) -> dict[str, bytes]:
+    logger.debug("Opening npz: %s", path)
     data = path.read_bytes()
     out: dict[str, bytes] = {}
     pos = 0
@@ -152,6 +146,8 @@ def _read_local_zip_members(path: Path) -> dict[str, bytes]:
     return out
 
 
+
+
 def _load_npz_members(path: Path) -> tuple[dict[str, bytes], bool]:
     logger.debug("Opening NPZ archive via standard zipfile: %s", path)
     try:
@@ -163,7 +159,7 @@ def _load_npz_members(path: Path) -> tuple[dict[str, bytes], bool]:
         logger.warning(
             "BadZipFile exception encountered. Falling back to manual zip parsing."
         )
-        members = _read_local_zip_members(path)
+        members = _read_npz(path)
         if not members:
             logger.error("Failed to recover any zip members manually.")
             raise
@@ -181,13 +177,20 @@ def _read_npy(data: bytes) -> np.ndarray:
 
 
 
+
+
+# User customization features
+
+
+
+
+
+
+# Identifies plane tilt in polar space using linear least squares =and levels the tilt (A*X + B*Y) while preserving the absolute height scale.
 def apply_flatness_adjust(
     grid: np.ndarray, theta_edges: np.ndarray, radius_edges: np.ndarray
 ) -> np.ndarray:
-    """Identifies plane tilt in polar space using linear least squares
 
-    and levels the tilt (A*X + B*Y) while preserving the absolute height scale.
-    """
     # Compute bin centers for polar coordinates
     theta_centers = 0.5 * (theta_edges[:-1] + theta_edges[1:])
     radius_centers = 0.5 * (radius_edges[:-1] + radius_edges[1:])
@@ -195,11 +198,9 @@ def apply_flatness_adjust(
     # Create 2D coordinate grid (angle_bins, radial_bins)
     theta_grid, radius_grid = np.meshgrid(theta_centers, radius_centers, indexing="ij")
 
-    # Convert Polar (r, theta) -> Cartesian (X, Y)
     X = radius_grid * np.cos(theta_grid)
     Y = radius_grid * np.sin(theta_grid)
 
-    # Filter out NaNs for plane fitting
     mask = np.isfinite(grid)
     if not np.any(mask):
         return grid
@@ -208,7 +209,7 @@ def apply_flatness_adjust(
     y_valid = Y[mask]
     z_valid = grid[mask]
 
-    # Design matrix for Z = A*X + B*Y + C
+    # use linear regression approachj
     M = np.column_stack([x_valid, y_valid, np.ones_like(x_valid)])
 
     # Solve linear least squares fit
@@ -223,35 +224,19 @@ def apply_flatness_adjust(
 
 
 
+# In all of the code, outlier filling is still referred to as "null filling" although technically that is not a real thing anymore
 def apply_null_filling(
     grid: np.ndarray, 
     kernel_size: int = 25, 
     threshold_std: float = 2.0, 
     max_abs_diff: float | None = None
 ) -> np.ndarray:
-    """Removes local noise and super high/low spike outliers by replacing them
-
-    with the local neighborhood average. Handles circular polar wrapping smoothly.
     
-    Parameters
-    ----------
-    grid : np.ndarray
-        Polar grid of shape (angle_bins, radial_bins)
-    kernel_size : int
-        Size of the local neighborhood window (must be odd, e.g., 3, 5, 7).
-    threshold_std : float
-        Outlier threshold based on standard deviation. Points deviating by more 
-        than `threshold_std * local_std` from the local mean are flagged.
-    max_abs_diff : float, optional
-        Hard cutoff difference (in um/units). Points differing from local mean 
-        by more than this value are flagged regardless of local std.
-    """
     cleaned_grid = np.asarray(grid, dtype=np.float32).copy()
     pad = kernel_size // 2
 
-    # 1. Pad array: Angular axis (axis 0) wraps circularly; Radial axis (axis 1) reflects/edges
     padded = np.pad(cleaned_grid, ((pad, pad), (pad, pad)), mode="constant", constant_values=np.nan)
-    # Angular circular wrap (top and bottom edges)
+
     padded[0:pad, pad:-pad] = cleaned_grid[-pad:, :]
     padded[-pad:, pad:-pad] = cleaned_grid[0:pad, :]
 
@@ -297,26 +282,16 @@ def apply_null_filling(
 
 
 
+
+# 
 def apply_radial_flattening(
     grid: np.ndarray, radius_edges: np.ndarray, method: str = "profile"
 ) -> np.ndarray:
-    """Removes radial tapering/slope (e.g., inward or outward dish slopes).
-
-    Parameters
-    ----------
-    grid : np.ndarray
-        Polar grid of shape (angle_bins, radial_bins)
-    radius_edges : np.ndarray
-        Radius bin edge boundaries
-    method : str
-        'profile' -> Subtracts the global average radial profile (preserves local angular anomalies).
-        'per_ray'   -> Fits and removes a linear slope along each angle bin independently.
-    """
     flattened_grid = np.asarray(grid, dtype=np.float32).copy()
     angle_bins, radial_bins = flattened_grid.shape
 
     if method == "profile":
-        # Compute mean height for each radial bin across all valid angle bins
+        # Find mean for compare
         radial_profile = np.nanmean(flattened_grid, axis=0)
 
         # Center the radial profile around zero so absolute baseline is maintained
@@ -332,12 +307,12 @@ def apply_radial_flattening(
             ray = flattened_grid[a, :]
             valid = np.isfinite(ray)
 
-            # Requires at least 2 valid points along the radial ray to fit a line
+            # Creates a way if valid
             if np.count_nonzero(valid) >= 2:
                 r_valid = radius_centers[valid]
                 z_valid = ray[valid]
 
-                # Fit line: z = slope * r + intercept
+                # Use a regular 
                 slope, intercept = np.polyfit(r_valid, z_valid, 1)
 
                 # Remove trend centered on the ray's mean radius
@@ -349,29 +324,22 @@ def apply_radial_flattening(
     return flattened_grid.astype(np.float32)
 
 
-
+"""
 def apply_polar_blur(grid: np.ndarray, blur_size: int) -> np.ndarray:
-    """Applies a box filter blur of size (blur_size x blur_size) to a polar grid.
-    
-    Angles (axis 0) wrap around smoothly; radii (axis 1) reflect at boundary edges.
-    """
+
     if blur_size <= 1:
         return grid.copy()
 
     pad = blur_size // 2
     angle_bins, radial_bins = grid.shape
 
-    # Pad angular axis (axis 0) with circular wrapping
     padded = np.pad(grid, ((pad, pad), (0, 0)), mode="wrap")
-
-    # Pad radial axis (axis 1) using edge reflection
     padded = np.pad(padded, ((0, 0), (pad, pad)), mode="edge")
 
     blurred_grid = np.empty_like(grid, dtype=np.float32)
 
     for a in range(angle_bins):
         for r in range(radial_bins):
-            # FIX: Offset r by 'pad' so the radial window stays centered
             window = padded[a : a + blur_size, r : r + blur_size]
             
             valid_mask = np.isfinite(window)
@@ -382,7 +350,7 @@ def apply_polar_blur(grid: np.ndarray, blur_size: int) -> np.ndarray:
 
     logger.debug("Applied polar mean blur with window size: %dx%d", blur_size, blur_size)
     return blurred_grid
-
+"""
 
 
 
@@ -487,7 +455,7 @@ def load_npz_heatmap(
     label = "height (um)"
     logger.debug("Detected value_kind: %s", value_kind)
 
-    # Order-agnostic scan range bounds
+    # Scan range bounds, agnostic to order even though the user should know better lol
     low_scan_deg = min(float(start_scan_range), float(end_scan_range))
     high_scan_deg = max(float(start_scan_range), float(end_scan_range))
     range_span_deg = high_scan_deg - low_scan_deg
@@ -542,7 +510,7 @@ def load_npz_heatmap(
         # ACCELERATED WITH NUMBA
         _accumulate_grid_numba(values, angle_index, pixel_index, sums, counts)
 
-        # Update Progress Bar dynamically (0%-80% range for chunk parsing)
+        # Update Progress Bar dynamically in the JS callback
         if progress_callback:
             percent = int(((idx + 1) / total_chunks) * 80)
             progress_callback(percent)
@@ -559,6 +527,7 @@ def load_npz_heatmap(
     inner_r = float(inner_diameter_mm) / 2.0
     outer_r = float(outer_diameter_mm) / 2.0
 
+    # apply user customizatin features
 
     theta_edges = np.linspace(0.0, 2.0 * np.pi, angle_bins + 1)
     radius_edges = np.linspace(inner_r, outer_r, radial_bins + 1)
@@ -572,8 +541,9 @@ def load_npz_heatmap(
     if radial_flattening:
         grid = apply_radial_flattening(grid, radius_edges, method="profile")
 
-    if blur and int(blur) > 1:
-        grid = apply_polar_blur(grid, int(blur))
+
+    # if blur and int(blur) > 1:
+    #     grid = apply_polar_blur(grid, int(blur))
 
     if reference_zeroing:
         finite = grid[np.isfinite(grid)]
@@ -661,6 +631,8 @@ class Api:
 
     
     def processAndVisualize(self, kwargs):
+        logger.debug("Received!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! kwargs from JS: %s", kwargs)
+
         # RESET CANCELLATION FLAG BEFORE STARTING
         self._is_cancelled = False 
 
@@ -786,6 +758,8 @@ class Api:
             "radial_bins": data.grid.shape[1],
             "inner_diameter_mm": kwargs.get("inner_diameter_mm", 230.0),
             "outer_diameter_mm": kwargs.get("outer_diameter_mm", 320.0),
+            "q_low": float(kwargs.get("q_low", 1.0) if kwargs.get("q_low") is not None else 1.0),
+            "q_high": float(kwargs.get("q_high", 99.0) if kwargs.get("q_high") is not None else 99.0),
             "data": polar_coordinate_list,
         }
 
@@ -819,6 +793,117 @@ class Api:
             },
         }
 
+
+    def generatePDFReport(self, kwargs):
+        try:
+            logger.info("Starting PDF report generation...")
+            output_dir = Path("assets")
+            pdf_path = output_dir / "report.pdf"
+            image_path = output_dir / "output.png"
+
+            if not image_path.exists():
+                return {"status": "error", "message": "No visualization image found."}
+
+            doc = SimpleDocTemplate(str(pdf_path), pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+            styles = getSampleStyleSheet()
+            story = []
+
+            # 1. Header & Source File
+            title_style = ParagraphStyle('ReportTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#1e293b"))
+            story.append(Paragraph("<b>Brake Disk Metrology & Analysis Report</b>", title_style))
+            story.append(Spacer(1, 10))
+
+            source_file = kwargs.get("source_file", "Unknown File")
+            story.append(Paragraph(f"<b>Source File:</b> {source_file}", styles['Normal']))
+            story.append(Spacer(1, 12))
+
+            # 2. Geometry & Grid Metadata Table
+            story.append(Paragraph("<b>1. Geometry & Grid Resolution</b>", styles['Heading2']))
+            story.append(Spacer(1, 6))
+
+            stats = kwargs.get("stats", {})
+            geom_data = [
+                ["Parameter", "Value", "Parameter", "Value"],
+                ["Inner Diameter", f"{kwargs.get('inner_diameter_mm', 230.0)} mm", "Angular Bins", f"{kwargs.get('angle_bins', 720)}"],
+                ["Outer Diameter", f"{kwargs.get('outer_diameter_mm', 320.0)} mm", "Radial Bins", f"{kwargs.get('radial_bins', 900)}"],
+                ["Inner/Outer Ratio", f"{stats.get('inmUsed', 0):.4f}", "Scan Range", f"{kwargs.get('start_scan_range', 0)}° - {kwargs.get('end_scan_range', 360)}°"],
+            ]
+            t_geom = Table(geom_data, colWidths=[110, 110, 110, 110])
+            t_geom.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ]))
+            story.append(t_geom)
+            story.append(Spacer(1, 12))
+
+            # 3. Processing Pipeline Configuration
+            story.append(Paragraph("<b>2. Data Processing Pipeline</b>", styles['Heading2']))
+            story.append(Spacer(1, 6))
+
+            proc_data = [
+                ["Pipeline Option", "Status / Parameter"],
+                ["Flatness Adjustment (Tilt)", "Enabled" if kwargs.get("flatness_adjust") else "Disabled"],
+                ["Null Filling / Spike Removal", "Enabled" if kwargs.get("null_filling") else "Disabled"],
+                ["Radial Flattening", "Profile Subtraction" if kwargs.get("radial_flattening") else "Disabled"],
+                ["Reference Zeroing", "Centered to Mean" if kwargs.get("reference_zeroing") else "Absolute"],
+                ["Polar Blur", f"Kernel Size: {kwargs.get('blur', 0)}" if kwargs.get('blur') else "Disabled"],
+                ["Quantile Clip Range", f"{kwargs.get('q_low', 1.0)}% - {kwargs.get('q_high', 99.0)}%"],
+            ]
+            t_proc = Table(proc_data, colWidths=[220, 220])
+            t_proc.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#64748b")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ]))
+            story.append(t_proc)
+            story.append(Spacer(1, 12))
+
+            # 4. Surface Statistics Table
+            story.append(Paragraph("<b>3. Surface Metrology Statistics</b>", styles['Heading2']))
+            story.append(Spacer(1, 6))
+
+            data_table = [
+                ["Metric", "Symbol", "Value"],
+                ["Maximum Height", "Z_max", f"{stats.get('max', 0):.3f} µm"],
+                ["Minimum Height", "Z_min", f"{stats.get('min', 0):.3f} µm"],
+                ["Peak-to-Valley (PV)", "ΔZ", f"{stats.get('range', 0):.3f} µm"],
+                ["Mean Height", "Z_avg", f"{stats.get('mean', 0):.3f} µm"],
+                ["Standard Deviation / Rq", "σ", f"{stats.get('sdv', 0):.3f} µm"],
+            ]
+
+            table = Table(data_table, colWidths=[180, 80, 180])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 14))
+
+            # 5. Visualization Attachment
+            story.append(Paragraph("<b>4. Polar Heatmap Visualization</b>", styles['Heading2']))
+            story.append(Spacer(1, 8))
+            story.append(Image(str(image_path), width=420, height=370))
+
+            doc.build(story)
+            logger.info("PDF export complete: %s", pdf_path)
+            return {"status": "success", "pdf_path": str(pdf_path)}
+
+        except Exception as e:
+            logger.exception("Failed to generate PDF report:")
+            return {"status": "error", "message": f"PDF Generation Error: {str(e)}"}
+
+
+
+
+    
 
 if __name__ == "__main__":
     logger.info("Starting PyWebView Desktop Application backend...")

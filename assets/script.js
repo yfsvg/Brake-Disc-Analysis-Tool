@@ -48,12 +48,6 @@ async function runVisualization(event) {
 
     updateProgressBar(0);
 
-    /*
-    let qValue = parseFloat(document.getElementById("parameterQLimit")?.value) * 100 || 1.0;
-    if (qValue > 49) qValue = 49;
-    */
-
-    // parameterQLimithigh
 
     const payload = {
         file_path: selectedFilePath,
@@ -62,8 +56,8 @@ async function runVisualization(event) {
         inner_diameter_mm: parseFloat(document.getElementById("parameterInnerDiameter")?.value) || 230.0,
         outer_diameter_mm: parseFloat(document.getElementById("parameterOuterDiameter")?.value) || 320.0,
 
-        q_low: parseFloat(document.getElementById("parameterQLimitLow")?.value) * 100 || 1,
-        q_high: parseFloat(document.getElementById("parameterQLimitHigh")?.value) * 100 || 99,
+        q_low: parseFloat(document.getElementById("parameterQLimitLow")?.value) || 1,
+        q_high: parseFloat(document.getElementById("parameterQLimitHigh")?.value) || 99,
 
         start_scan_range: parseFloat(document.getElementById("parameterStartScan")?.value) || 0.0,
         end_scan_range: parseFloat(document.getElementById("parameterEndScan")?.value) || 360.0,
@@ -130,6 +124,8 @@ async function reloadVisualization() {
     await loadVisualizationData(true);
 }
 
+
+// Help info for docs
 const helpIDList = [
     ["Inner Diameter", "Controls the size of the inner ring diameter in the visualization. It is best practice to utilize the actual inner diameter of the breakdisk and use IGNORE MINIMUM or IGNORE MAXIMUM if the laser line goes over."],
     ["Outer Diameter", "Controls the size of the outer ring diameter in the visualization. Similar to inner diameter, is best practice to utilize the actual outer diameter of the breakdisk and use IGNORE MINIMUM or IGNORE MAXIMUM if the laser line goes over."],
@@ -208,6 +204,8 @@ function zoomAtPoint(zoomFactor, focalX, focalY) {
 
     applyTransform();
 }
+
+
 
 
 

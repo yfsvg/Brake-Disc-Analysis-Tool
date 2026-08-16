@@ -4,23 +4,29 @@
         <meta charset="UTF-8" />
         <link rel="stylesheet" href="styles.css" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Breakdisk Analysis Tool - yefoi</title>
+        <title data-i18n="appTitle">Brake Disc Analysis Tool - yefoi</title>
 
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap" rel="stylesheet">
 
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
         <script src="script.js"></script>
         <script src="scriptLineProfiler.js"></script>
+        <script src="scriptPointClouder.js"></script>
+        <script src="language.js" defer></script>
+        <script src="reportGenerator.js"></script>
     </head>
 
     <div id="overlayBG">
         <div id="overlayInfo">
-            <h1>Info for <b id="helpType">Button type</b></h1>
+            <h1><span data-i18n="infoFor">Info for</span> <b id="helpType" data-i18n="buttonType">Button type</b></h1>
 
-            <p>Click off this box to cancel or press [ESCAPE]</p>
+            <p data-i18n="overlayCancelNotice">Click off this box to cancel or press [ESCAPE]</p>
 
-            <h3 id="helpInfoText" style="margin-top: 15px;">Help info</h3>
+            <h3 id="helpInfoText" style="margin-top: 15px;" data-i18n="helpInfo">Help info</h3>
         </div>
     </div>
 
@@ -28,28 +34,28 @@
         <main class="container">
             
             <section>
-                <h1>Data Analysis and Visualization Parameters</h1>
+                <h1 data-i18n="dataAnalysisTitle">Data Analysis and Visualization Parameters</h1>
 
                 <span style="width: 100%; justify-content: space-between; display: flex; align-items: center; width: 100%; gap:10px; margin-bottom: 10px;">
-                    <div id="filePathInput" class="codeFont">
+                    <div id="filePathInput" class="codeFont" data-i18n="noFileSelected">
                         No file selected
                     </div>
-                    <button onclick="selectNativeFile()">Select File</button>
+                    <button onclick="selectNativeFile()" data-i18n="btnSelectFile">Select File</button>
                 </span>
 
                 <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(0)">Inner diameter</p>
+                        <p class="smallText" onclick="showHelp(0)" data-i18n="paramInnerDiameter">Inner diameter</p>
                         <input type="text" placeholder="230.0" id="parameterInnerDiameter">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(1)">Outer diameter</p>
+                        <p class="smallText" onclick="showHelp(1)" data-i18n="paramOuterDiameter">Outer diameter</p>
                         <input type="text" placeholder="320.0" id="parameterOuterDiameter">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(2)">Angle bins</p>
+                        <p class="smallText" onclick="showHelp(2)" data-i18n="paramAngleBins">Angle bins</p>
                         <select name="" id="parameterAngleBins">
                             <option value="180">180</option>
                             <option value="360">360</option>
@@ -60,7 +66,7 @@
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(3)">Radial bins</p>
+                        <p class="smallText" onclick="showHelp(3)" data-i18n="paramRadialBins">Radial bins</p>
                         <select name="" id="parameterRadialBins">
                             <option value="150">150</option>
                             <option value="300">300</option>
@@ -72,235 +78,204 @@
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(4)">Q Low</p>
-                        <input type="text" placeholder="0.01" id="parameterQLimitLow">
+                        <p class="smallText" onclick="showHelp(4)" data-i18n="paramQLow">Q Low</p>
+                        <input type="text" placeholder="1" id="parameterQLimitLow">
                     </div>
-
                 </span>
 
                 <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px;">
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(5)">Start scan range</p>
+                        <p class="smallText" onclick="showHelp(5)" data-i18n="paramStartScan">Start scan range</p>
                         <input type="text" placeholder="0" id="parameterStartScan">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(6)">End scan range</p>
+                        <p class="smallText" onclick="showHelp(6)" data-i18n="paramEndScan">End scan range</p>
                         <input type="text" placeholder="360" id="parameterEndScan">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(7)">Ignore minimum</p>
+                        <p class="smallText" onclick="showHelp(7)" data-i18n="paramIgnoreMin">Ignore minimum</p>
                         <input type="text" id="parameterIgnoreMinimum" placeholder="5600">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(8)">Ignore maximum</p>
+                        <p class="smallText" onclick="showHelp(8)" data-i18n="paramIgnoreMax">Ignore maximum</p>
                         <input type="text" id="parameterIgnoreMaximum" placeholder="6650">
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText" onclick="showHelp(9)">Q High</p>
-                        <input type="text" placeholder="0.99" id="parameterQLimithigh">
+                        <p class="smallText" onclick="showHelp(9)" data-i18n="paramQHigh">Q High</p>
+                        <input type="text" placeholder="99" id="parameterQLimitHigh">
                     </div>
-                    
                 </span>
 
                 <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px; ">
-
-
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
                         <input type="checkbox" id="parameterFlatnessAdjustment" checked>
-                        <p onclick="showHelp(10)" class="smallText">Flatness Adjust</p>
+                        <p onclick="showHelp(10)" class="smallText" data-i18n="paramFlatnessAdjust">Flatness Adjust</p>
                     </span>
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
                         <input type="checkbox" id="parameterReferenceZeroing">
-                        <p onclick="showHelp(11)" class="smallText">Ref. Zeroing</p>
+                        <p onclick="showHelp(11)" class="smallText" data-i18n="paramRefZeroing">Ref. Zeroing</p>
                     </span>
                 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
                         <input type="checkbox" id="parameterNullFilling">
-                        <p onclick="showHelp(12)" class="smallText">Outlier Flattening</p>
+                        <p onclick="showHelp(12)" class="smallText" data-i18n="paramOutlierFlattening">Outlier Flattening</p>
                     </span>
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
-                        <input type="checkbox" id="parameterRadialFlattening">
-                        <p onclick="showHelp(13)" class="smallText">Radial Flattening</p>
+                        <input type="checkbox" id="parameterRadialFlattening" checked>
+                        <p onclick="showHelp(13)" class="smallText" data-i18n="paramRadialFlattening">Radial Flattening</p>
                     </span>
 
                     <span style="width: 20%; height: 100%; gap: 5px; justify-content: start;">
                         <input type="checkbox" id="parameterZeroAtRight">
-                        <p onclick="showHelp(14)" class="smallText">0 at right</p>
+                        <p onclick="showHelp(14)" class="smallText" data-i18n="paramZeroAtRight">0 at right</p>
                     </span>
                 </span>
 
                 <span style="gap: 10px; align-items: center; display: flex;">
                     <div id="progressBar" class="codeFont">
                         <div id="progressBarFill"></div>
-                        <span id="progressBarText" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">Processing: 0%</span>
+                        <span id="progressBarText" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;" data-i18n="progressText">Processing: 0%</span>
                     </div>
 
-                    <button id="visualizeButton" onclick="runVisualization(event)">Visualize</button>
-                    <button onclick="cancelProcessing">
-                        Stop process
-                    </button>
+                    <button id="visualizeButton" onclick="runVisualization(event)" data-i18n="btnVisualize">Visualize</button>
+                    <button onclick="cancelProcessing()" data-i18n="btnStopProcess">Stop process</button>
                 </span>
-
-                
-            
-                
             </section>
 
             <section>
-                <h1>Measurement/analysis tools</h1>
+                <h1 data-i18n="measurementToolsTitle">Measurement/analysis tools</h1>
+
+                <div class="measurementToolSegment"></div>
 
                 <div class="measurementToolSegment">
-
-                </div>
-
-                <div class="measurementToolSegment">
-                    <h3>Two point height delta</h3>
+                    <h3 data-i18n="twoPointDeltaTitle">Two point height delta</h3>
                     <span>
                         <div>
-                            <p class="smallText" onclick="showHelp(15)">Current point 1: <p id="mtsSelectPoint1Show">None</p></p>
-                            <button onclick="setPoint(1)">Select point 1</button>
+                            <p class="smallText" onclick="showHelp(15)"><span data-i18n="lblCurrentPoint1">Current point 1:</span> <p id="mtsSelectPoint1Show" data-i18n="valNone">None</p></p>
+                            <button onclick="setPoint(1)" data-i18n="btnSelectPoint1">Select point 1</button>
                         </div>
 
                         <div>
-                            <p class="smallText" onclick="showHelp(15)">Current point 2: <p id="mtsSelectPoint2Show">None</p></p>
-                            <button onclick="setPoint(2)">Select point 2</button>
+                            <p class="smallText" onclick="showHelp(15)"><span data-i18n="lblCurrentPoint2">Current point 2:</span> <p id="mtsSelectPoint2Show" data-i18n="valNone">None</p></p>
+                            <button onclick="setPoint(2)" data-i18n="btnSelectPoint2">Select point 2</button>
                         </div>
 
                         <div>
-                            <p class="smallText" onclick="showHelp(15)">Final height delta: <p id="mtsDeltaShow">None</p></p>
-                            <button onclick="calculateHeightDelta()" disabled>Calculate</button>
+                            <p class="smallText" onclick="showHelp(15)"><span data-i18n="lblFinalDelta">Final height delta:</span> <p id="mtsDeltaShow" data-i18n="valNone">None</p></p>
+                            <button onclick="calculateHeightDelta()" data-i18n="btnCalculate">Calculate</button>
                         </div>
 
                         <div>
-                            <p class="smallText" onclick="showHelp(15)">Restart / unselect <p style="opacity: 0;">. </p></p>
-                            <button onclick="resetHeightDelta()">Restart / unselect</button>
+                            <p class="smallText" onclick="showHelp(15)"><span data-i18n="lblRestartUnselect">Restart / unselect</span> <p style="opacity: 0;">. </p></p>
+                            <button onclick="resetHeightDelta()" data-i18n="btnRestartUnselect">Restart / unselect</button>
                         </div>
                     </span>
                 </div>
 
-
-
                 <div class="measurementToolSegment">
-                    <h3>Line profile analysis</h3>
+                    <h3 data-i18n="lineProfileTitle">Line profile analysis</h3>
                     <span>
                         <div>
-                            <p class="smallText" onclick="showHelp(16)">Coordinate point 1 pressed: <p id="mtsLPASelectPoint1Show">None</p></p>
-                            <button id="mtsLPASelectPoint1">Select point 1</button>
+                            <p class="smallText" onclick="showHelp(16)"><span data-i18n="lblCoordPoint1">Coordinate point 1 pressed:</span> <p id="mtsLPASelectPoint1Show" data-i18n="valNone">None</p></p>
+                            <button id="mtsLPASelectPoint1" data-i18n="btnSelectPoint1">Select point 1</button>
                         </div>
 
                         <div>
-                            <p class="smallText" onclick="showHelp(16)">Coordinate point 2 pressed: <p id="mtsLPASelectPoint2Show">None</p></p>
-                            <button id="mtsLPASelectPoint2">Select point 2</button>
+                            <p class="smallText" onclick="showHelp(16)"><span data-i18n="lblCoordPoint2">Coordinate point 2 pressed:</span> <p id="mtsLPASelectPoint2Show" data-i18n="valNone">None</p></p>
+                            <button id="mtsLPASelectPoint2" data-i18n="btnSelectPoint2">Select point 2</button>
                         </div>
 
                         <div>
-                            <p class="smallText" onclick="showHelp(16)">Final: <p style="opacity: 0;"> .</p></p>
-                            <button disabled id="mtsLPACalculate">Calculate</button>
+                            <p class="smallText" onclick="showHelp(16)"><span data-i18n="lblFinal">Final:</span> <p style="opacity: 0;"> .</p></p>
+                            <button id="mtsLPACalculate" data-i18n="btnCalculate">Calculate</button>
                         </div>
 
                         <div>
-                            <p class="smallText" onclick="showHelp(16)">Restart / unselect <p style="opacity: 0;"> .</p></p>
-                            <button id="mtsLPARestartUnselect">Restart / unselect</button>
+                            <p class="smallText" onclick="showHelp(16)"><span data-i18n="lblRestartUnselect">Restart / unselect</span> <p style="opacity: 0;"> .</p></p>
+                            <button id="mtsLPARestartUnselect" data-i18n="btnRestartUnselect">Restart / unselect</button>
                         </div>
                     </span>
 
                     <canvas id="lineProfileOutputArea"></canvas>
                 </div>
-
-
-
-                
             </section>
 
             <section>
-                <h1>Visualization Output</h1>
+                <h1 data-i18n="vizOutputTitle">Visualization Output</h1>
                 
                 <span style="width: 100%; gap: 10px;">
-                    <section id="imageViewport" style="height: 600px; width: 600px; min-width: 600px; position: relative; overflow: hidden; background-color: #161A1E; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1);">
-                        
+                    <section id="imageViewport" style="height: 800px; width: 600px; min-width: 600px; position: relative; overflow: hidden; background-color: #161A1E; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1);">
                         <div id="transformLayer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; background-repeat: no-repeat; background-size: contain; background-position: 0% 0%;">
                             <canvas id="finalImageOverlay" style="width: 100%; height: 100%; display: block;"></canvas>
                         </div>
                     </section>
 
-                    <section style="width: 30%; min-width: 250px; height: 600px" id="dataAnalysisDashboard">
-                        <h1>Data Analysis Dashboard</h1>
+                    <section style="width: 30%; min-width: 250px; height: 800px" id="dataAnalysisDashboard">
+                        <h1 data-i18n="dashboardTitle">Data Analysis Dashboard</h1>
                         <div style="margin-bottom: 10px;">
-                            <h3 style="margin-bottom: 10px;">Static information</h3>
-                            <p id="siInfoAverage" style="margin-bottom: 10px;">Average: </p>
-                            <p id="siInfoStdv" style="margin-bottom: 10px;">Standard Deviation: </p>
-                            <p id="siInfoMax" style="margin-bottom: 10px;">Max:</p>
-                            <p id="siInfoMin" style="margin-bottom: 10px;">Min:</p>
+                            <h3 style="margin-bottom: 10px;" data-i18n="staticInfoTitle">Static information</h3>
+                            <p id="siInfoAverage" style="margin-bottom: 10px;" data-i18n="infoAverage">Average: </p>
+                            <p id="siInfoStdv" style="margin-bottom: 10px;" data-i18n="infoStdv">Standard Deviation: </p>
+                            <p id="siInfoMax" style="margin-bottom: 10px;" data-i18n="infoMax">Max:</p>
+                            <p id="siInfoMin" style="margin-bottom: 10px;" data-i18n="infoMin">Min:</p>
                         </div>
 
                         <div style="margin-bottom: 10px;">
-                            <h3 style="margin-bottom: 10px;">Mouse hover information</h3>
-                            <p id="mhInfoCartesianPos" style="margin-bottom: 10px;">Cartesian coordinates: </p>
-                            <p id="mhInfoPolarPos" style="margin-bottom: 10px;">Polar coordinates: </p>
-                            <p id="mhInfoPolarBinPos" style="margin-bottom: 10px;">Polar bin: </p>
-                            <p id="mhInfoHeightVal" style="margin-bottom: 10px;">Height value: </p>
+                            <h3 style="margin-bottom: 10px;" data-i18n="mouseHoverTitle">Mouse hover information</h3>
+                            <p id="mhInfoCartesianPos" style="margin-bottom: 10px;" data-i18n="infoCartesian">Cartesian coordinates: </p>
+                            <p id="mhInfoPolarPos" style="margin-bottom: 10px;" data-i18n="infoPolar">Polar coordinates: </p>
+                            <p id="mhInfoPolarBinPos" style="margin-bottom: 10px;" data-i18n="infoPolarBin">Polar bin: </p>
+                            <p id="mhInfoHeightVal" style="margin-bottom: 10px;" data-i18n="infoHeightVal">Height value: </p>
                         </div>
 
                         <div style="margin-bottom: 10px;">
-                            <h3 style="margin-bottom: 10px;">Zoom tools</h3>
+                            <h3 style="margin-bottom: 10px;" data-i18n="zoomToolsTitle">Zoom tools</h3>
                             <span style="gap: 5px;">
                                 <button id="btnZoomIn" class="zoomControlButton">+</button>
                                 <button id="btnZoomOut" class="zoomControlButton">-</button>
-                                <button id="btnZoomReset" class="zoomControlButton" style="font-size: 1em;">RST</button>
+                                <button id="btnZoomReset" class="zoomControlButton" style="font-size: 1em;" data-i18n="btnZoomReset">RST</button>
                             </span>
                         </div>
 
                         <div style="margin-bottom: 10px;">
-                            <h3 style="margin-bottom: 10px;">Save Scan Analysis</h3>
-                            <a href="/output.png"><button style="margin-bottom: 5px;">Save PNG</button></a>
-                            <button>Generate Report</button>
+                            <h3 style="margin-bottom: 10px;" data-i18n="saveScanTitle">Save Scan Analysis</h3>
+                            <a href="/output.png"><button style="margin-bottom: 5px;" data-i18n="btnSavePNG">Save PNG</button></a>
+                            <button id="switchVisualizationType" style="margin-bottom: 5px;" data-i18n="btnPointCloud">3D Point Cloud</button>
+                            <button data-i18n="btnGenReport" onclick="exportPDFReport()">Generate Report</button>
                         </div>
-
-
-
                     </section>
                 </span>
             </section>
 
             <section>
-                <h1>Appearance and Language</h1>
+                <h1 data-i18n="appearanceLangTitle">Appearance and Language</h1>
 
                 <span style="width: 100%; width: 100%; gap:10px; margin-bottom: 5px; justify-content: start;">
-
                     <div style="width: 20%;">
-                        <p class="smallText">Text</p>
-                        <select name="" id="languageSelection">
+                        <p class="smallText" data-i18n="lblLanguage">Language</p>
+                        <select id="languageSelection" onchange="changeLanguage(this.value)">
                             <option value="en" selected>English</option>
-                            <option value="cn">Chinese</option>
-                            <option value="de">German</option>
+                            <option value="cn">中文 (Chinese)</option>
+                            <option value="de">Deutsch (German)</option>
                         </select>
                     </div>
 
                     <div style="width: 20%;">
-                        <p class="smallText">Text</p>
-                        <select name="" id="appearanceSelection">
-                            <option value="dark" selected>Dark</option>
-                            <option value="light">Light</option>
-                            <option value="system">System</option>
+                        <p class="smallText" data-i18n="lblAppearance">Appearance</p>
+                        <select id="appearanceSelection">
+                            <option value="dark" selected data-i18n="themeDark">Dark</option>
+                            <option value="light" data-i18n="themeLight">Light</option>
+                            <option value="system" data-i18n="themeSystem">System</option>
                         </select>
                     </div>
-
-
                 </span>
-
             </section>
-            
-
-            
-
         </main>
     </body>
 </html>
-
-
