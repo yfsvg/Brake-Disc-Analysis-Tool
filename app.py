@@ -581,11 +581,11 @@ def load_npz_heatmap(
     )
 
 
-# --- PyWebView API Interface ---
+# API mehtods
 
 
 class Api:
-    """Methods in this class are exposed to JavaScript via pywebview.api"""
+    """Methods in this class are exposed to JavaScript via pywebview.api to allow for data transfer to frontend and user int. and such"""
 
     def __init__(self):
         self.window = None
@@ -603,10 +603,13 @@ class Api:
             logger.info("Processing safely halted due to cancellation signal.")
             raise InterruptedError("Processing was cancelled by the user.")
 
+
+
     def _update_js_progress(self, percent: int):
         """Dispatches progress percentage updates to JavaScript"""
         if self.window:
             self.window.evaluate_js(f"updateProgressBar({percent})")
+
 
     def openFile(self, **kwargs):
         logger.info("Triggered openFile dialog from JS interface with options: %s", kwargs)
@@ -621,6 +624,7 @@ class Api:
             file_types=file_types,
         )
 
+
         if not result:
             logger.info("File dialog was cancelled by user.")
             return {"status": "cancelled", "message": "File selection cancelled."}
@@ -628,6 +632,10 @@ class Api:
         file_path = str(result[0])
         logger.info("Selected file: %s", file_path)
         return {"status": "success", "file_path": file_path}
+
+
+
+
 
     
     def processAndVisualize(self, kwargs):
@@ -680,14 +688,15 @@ class Api:
                     remap_lines=kwargs.get("remap_lines", True),
                     **params,
                 )
+
             else:
+
                 logger.error("Unsupported file extension provided: %s", file_path.suffix)
                 return {
                     "status": "error",
                     "message": f"Unsupported format: {file_path.suffix}",
                 }
         except InterruptedError:
-            # Catch the explicit cancellation exception
             return {"status": "cancelled", "message": "Processing was cancelled."}
         except Exception as e:
             logger.exception("An exception occurred while processing dataset:")
@@ -698,22 +707,23 @@ class Api:
         
         output_dir = Path("assets")
         output_dir.mkdir(parents=True, exist_ok=True)
-        
         output_png_path = output_dir / "output.png"
         output_json_path = output_dir / "outputInfo.json"
-        
         logger.info("Rendering heatmap visualization to PNG: %s", output_png_path)
 
         fig = Figure(figsize=(9, 8), dpi=500)
         ax = fig.add_subplot(111, projection="polar")
 
         theta, radius = np.meshgrid(data.theta_edges, data.radius_edges)
+
         
         # Calculate percentiles directly using the payload values on valid points within the range
         finite = data.grid[np.isfinite(data.grid)]
         q_low_val = float(params["q_low"])
         q_high_val = float(params["q_high"])
         vmin, vmax = np.nanpercentile(finite, [q_low_val, q_high_val])
+
+
 
         logger.debug("Applying color scale range (vmin: %.3f, vmax: %.3f) for q_low: %.1f%%, q_high: %.1f%%", 
                      vmin, vmax, q_low_val, q_high_val)
@@ -732,7 +742,7 @@ class Api:
 
         # if user picks zero to right, shift everything
         if zero_at_right:
-            ax.set_theta_zero_location("E") # "E" and "N" are east and north, set those.
+            ax.set_theta_zero_location("E") 
             ax.set_theta_direction(1)
         else:
             ax.set_theta_zero_location("N")

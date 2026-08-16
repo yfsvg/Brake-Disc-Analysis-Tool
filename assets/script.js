@@ -3,7 +3,7 @@ let visualizationData = null;
 
 let innerDiameterToOuterDiameterRatio;
 
-// Global Transform State
+// Global Transform State for dynamic image info
 const transformState = {
     scale: 1,
     translateX: 0,
@@ -20,18 +20,18 @@ let isMouseInsideViewport = false;
 
 async function selectNativeFile() {
     const result = await window.pywebview.api.openFile();
-    if (result && result.status === "success") {
+    if (result && result.status == "success") {
         selectedFilePath = result.file_path;
         document.getElementById("filePathInput").textContent = selectedFilePath;
     }
 }
 
 function updateProgressBar(percentage) {
-    const fill = document.getElementById("progressBarFill");
-    const text = document.getElementById("progressBarText");
-    const clampedPercent = Math.min(100, Math.max(0, Math.round(percentage)));
-    if (fill) fill.style.width = clampedPercent + "%";
-    if (text) text.textContent = "Processing: " + clampedPercent + "%";
+    const fill = document.getElementById("progressBarFill")
+    const text = document.getElementById("progressBarText")
+    const clampedPercent = Math.min(100, Math.max(0, Math.round(percentage)))
+    if (fill) fill.style.width = clampedPercent + "%"
+    if (text) text.textContent = "Processing: " + clampedPercent + "%"
 }
 
 async function runVisualization(event) {
@@ -147,16 +147,16 @@ const helpIDList = [
 ];
 
 function showHelp(id) {
-    document.getElementById("overlayBG").style.display = "flex";
-    document.getElementById("helpType").textContent = helpIDList[id][0];
-    document.getElementById("helpInfoText").textContent = helpIDList[id][1];
+    document.getElementById("overlayBG").style.display = "flex"
+    document.getElementById("helpType").textContent = helpIDList[id][0]
+    document.getElementById("helpInfoText").textContent = helpIDList[id][1]
 }
 
 async function loadVisualizationData(forceReload = false) {
-    if (!forceReload && visualizationData) return visualizationData;
+    if (!forceReload && visualizationData) return visualizationData
 
     try {
-        const cacheBuster = "?t=" + new Date().getTime();
+        const cacheBuster = "?t=" + new Date().getTime()
         const response = await fetch('outputInfo.json' + cacheBuster);
         visualizationData = await response.json();
         return visualizationData;
@@ -168,7 +168,7 @@ async function loadVisualizationData(forceReload = false) {
 
 // Applies CSS transform matrix based on scale and pan variables
 function applyTransform() {
-    const layer = document.getElementById("transformLayer");
+    const layer = document.getElementById("transformLayer")
     if (layer) {
         layer.style.transform = `translate(${transformState.translateX}px, ${transformState.translateY}px) scale(${transformState.scale})`;
     }
@@ -223,7 +223,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const viewport = document.getElementById('imageViewport');
     if (!canvas || !viewport) return;
 
-    // Original analysis frame constants
+    // Original analysis frame constants. These are static because it is much easier to handle the overlay if we just keep the image still. if its needed i can probably 
+    // find a way to update this dynamically but i was not able to during the internship.
     const CENTER_X = 256;
     const CENTER_Y = 264;
     // 275, 286
@@ -236,9 +237,10 @@ window.addEventListener("DOMContentLoaded", () => {
         currentMouseViewportPos.x = event.clientX - rect.left;
         currentMouseViewportPos.y = event.clientY - rect.top;
         isMouseInsideViewport = true;
+
         INNER_R = OUTER_R * innerDiameterToOuterDiameterRatio;
 
-        // Handle viewport panning logic
+        // move logic so the mask fits
         if (transformState.isDragging) {
             transformState.translateX = event.clientX - transformState.dragStart.x;
             transformState.translateY = event.clientY - transformState.dragStart.y;
@@ -246,15 +248,18 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+
     viewport.addEventListener('pointerenter', () => { isMouseInsideViewport = true; });
     viewport.addEventListener('pointerleave', () => { 
         isMouseInsideViewport = false; 
         transformState.isDragging = false;
     });
 
-    // Middle-click / Drag implementation to pan around zoomed image
+
+
+
     viewport.addEventListener('pointerdown', (event) => {
-        if (event.button === 0 && transformState.scale > 1) { // Left click drag when zoomed in
+        if (event.button == 0 && transformState.scale > 1) { 
             transformState.isDragging = true;
             transformState.dragStart.x = event.clientX - transformState.translateX;
             transformState.dragStart.y = event.clientY - transformState.translateY;
@@ -265,7 +270,8 @@ window.addEventListener("DOMContentLoaded", () => {
         transformState.isDragging = false;
     });
 
-    // Keyboard Zoom Controls (+ / = to zoom in, - to zoom out)
+    /*
+
     window.addEventListener('keydown', (event) => {
         if (!isMouseInsideViewport) return;
 
@@ -282,39 +288,38 @@ window.addEventListener("DOMContentLoaded", () => {
             triggerHoverCalculation(currentMouseViewportPos.x, currentMouseViewportPos.y);
         }
     });
+    */
+
 
     // UI Buttons Zoom Control
     document.getElementById('btnZoomIn')?.addEventListener('click', () => {
-        zoomAtPoint(1.25, viewport.clientWidth / 2, viewport.clientHeight / 2);
+        zoomAtPoint(1.25, viewport.clientWidth / 2, viewport.clientHeight / 2)
     });
     document.getElementById('btnZoomOut')?.addEventListener('click', () => {
-        zoomAtPoint(0.8, viewport.clientWidth / 2, viewport.clientHeight / 2);
+        zoomAtPoint(0.8, viewport.clientWidth / 2, viewport.clientHeight / 2)
     });
-    document.getElementById('btnZoomReset')?.addEventListener('click', reloadVisualization);
+    document.getElementById('btnZoomReset')?.addEventListener('click', reloadVisualization)
 
-    // Height Map Calculation logic with Zoom Matrix Inversion
+    // Height Map Calculation logic during zooming in
     async function triggerHoverCalculation(viewportX, viewportY) {
-        // Convert screen coordinates -> Un-transformed raw Image coordinates
+        // Convert screen coordinates into raw Image coordinates to access data from json efficientyly
         const mouseX = (viewportX - transformState.translateX) / transformState.scale;
         const mouseY = (viewportY - transformState.translateY) / transformState.scale;
 
         const rawJson = await loadVisualizationData();
         if (!rawJson || !rawJson.data) return;
 
-        // Dynamically retrieve actual bin sizes from JSON!
-        const totalAngles = rawJson.angle_bins;
-        const totalRadial = rawJson.radial_bins;
+        const totalAngles = rawJson.angle_bins
+        const totalRadial = rawJson.radial_bins
         const grid = rawJson.data;
 
-        // 1. Relative radial distance calculation
-        const dx = mouseX - CENTER_X;
-        const dy = mouseY - CENTER_Y;
+        const dx = mouseX - CENTER_X
+        const dy = mouseY - CENTER_Y
         const radius = Math.hypot(dx, dy);
 
-        // Check bounds
         if (radius < INNER_R || radius > OUTER_R) {
-            document.getElementById("mhInfoCartesianPos").innerHTML = `Cartesian coordinates: <br><b>${mouseX.toFixed(1)}, ${mouseY.toFixed(1)} (Out of bounds)</b>`;
-            return;
+            document.getElementById("mhInfoCartesianPos").innerHTML = `Cartesian coordinates: <br><b>${mouseX.toFixed(1)}, ${mouseY.toFixed(1)} (Out of bounds)</b>`
+            return
         }
 
         // 2. Polar Angle Computation
@@ -323,15 +328,16 @@ window.addEventListener("DOMContentLoaded", () => {
             radians += 2 * Math.PI;
         }
 
-        const degrees = radians * (180 / Math.PI);
+        const degrees = radians * (180 / Math.PI)
 
-        // 3. Polar JSON Matrix Lookups
-        const angleIdx = Math.floor((degrees / 360) * totalAngles) % totalAngles;
-        const normalizedR = (radius - INNER_R) / (OUTER_R - INNER_R);
-        const radialIdx = Math.min(totalRadial - 1, Math.floor(normalizedR * totalRadial));
+        // Check in the json file
+        const angleIdx = Math.floor((degrees / 360) * totalAngles) % totalAngles
+        const normalizedR = (radius - INNER_R) / (OUTER_R - INNER_R)
+        const radialIdx = Math.min(totalRadial - 1, Math.floor(normalizedR * totalRadial))
 
-        if (grid && grid[angleIdx] && grid[angleIdx][radialIdx] !== undefined) {
-            const height = grid[angleIdx][radialIdx];
+        
+        if (grid && grid[angleIdx] && grid[angleIdx][radialIdx] != undefined) {
+            const height = grid[angleIdx][radialIdx]
 
             document.getElementById("mhInfoCartesianPos").innerHTML = `Cartesian coordinates: <br><b>${mouseX.toFixed(1)}, ${mouseY.toFixed(1)}</b>`;
             document.getElementById("mhInfoPolarPos").innerHTML = `Polar coordinates: <br><b>${degrees.toFixed(1)}°, ${radius.toFixed(1)}um</b>`;
@@ -358,8 +364,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // State variables
     let p1 = null, p2 = null, target = null;
-
-    // Attach functions to global window object so HTML inline onclicks can see them
     window.setPoint = function(pt) { 
         target = pt; 
     };
@@ -377,7 +381,8 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     };
 
-    // Click listener reading directly from mhInfoHeightVal
+
+    // Click listener reading directly from mhInfoHeightVal for the two point height dlta
     const overlayCanvas = document.getElementById('finalImageOverlay');
     if (overlayCanvas) {
         overlayCanvas.addEventListener('click', () => {
